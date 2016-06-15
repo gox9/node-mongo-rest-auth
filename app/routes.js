@@ -40,7 +40,7 @@ module.exports = function(app) {
   });
 
   // Authenticate the user and get a JSON Web Token to include in the header of future requests.
-  apiRoutes.post('/authenticate', function(req, res) {
+  apiRoutes.post('/auth', function(req, res) {
     User.findOne({
       email: req.body.email
     }, function(err, user) {
@@ -69,7 +69,8 @@ module.exports = function(app) {
 
   // GET User
   apiRoutes.get('/user', requireAuth, function(req, res) {
-    User.find({$or : [{'email': req.query.email}]}, function(err, data) {
+    var query = (req.query.email) ? {'email': req.query.email} : {};
+    User.find(query, function(err, data) {
       if (err){
         res.status(400).send(err);
       }
@@ -96,28 +97,70 @@ module.exports = function(app) {
 
   // Update User Password
   apiRoutes.put('/user/:email', requireAuth, function(req, res) {
-    User.findOne({'email': req.query.email}, function(err, data) {
+
+    if(!req.body.email && !req.body.password){
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    
+    User.findOne({'email': req.params.email}, function(err, data) {
       if (err){
-        res.send(err);
+        return res.send(err);
       }
 
-      data.password = req.body.password;
+      if(!data){
+        return res.status(404).json({ success: false, message: 'User not found.' });
+      }
 
-      data.save(function(err) {
+      var msg = '';
+      if(req.body.email && (data.email !== req.body.email)){
+        data.email = req.body.email;
+        msg += 'Email ';
+      }
+
+      data.comparePassword(req.body.password, function(err, isMatch){
         if (err){
-          res.send(err);
+          return res.send(err);
         }
 
-        res.json({ message: 'Password changed!' });
+        if(!isMatch){
+          data.password = req.body.password;
+          if(msg===''){
+            msg += 'Password ';
+          }else{
+            msg += 'and Password ';
+          }
+
+          data.save(function(err) {
+            if (err){
+              return res.send(err);
+            }
+            res.json({ message: msg + 'changed!' });
+          });
+        }else{
+          if(msg !== ''){
+            data.save(function(err) {
+              if (err){
+                return res.send(err);
+              }
+              res.json({ message: msg + 'changed!' });
+            });
+          }else{
+            res.json({ message: 'Nothing changed!' });
+          }
+        }
       });
     });
   });
 
   // Delete User
   apiRoutes.delete('/user/:email', requireAuth, function(req, res) {
-    User.findOneAndRemove({'email': req.query.email}, function(err) {
+    User.findOneAndRemove({'email': req.params.email}, function(err, data) {
       if (err){
-        res.send(err);
+        return res.send(err);
+      }
+
+      if(!data){
+        return res.status(404).json({ success: false, message: 'User not found.' });
       }
 
       res.json({ message: 'User deleted!' });
